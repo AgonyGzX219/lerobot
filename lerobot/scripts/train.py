@@ -299,7 +299,7 @@ def train(cfg: DictConfig, out_dir: str | None = None, job_name: str | None = No
         )
 
     # log metrics to terminal and wandb
-    logger = Logger(cfg, out_dir, wandb_job_name=job_name)
+    logger = Logger(cfg, out_dir, job_name=job_name)
 
     set_global_seed(cfg.seed)
 
