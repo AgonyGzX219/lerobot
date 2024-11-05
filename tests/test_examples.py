@@ -13,7 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# TODO(aliberts): Mute logging for these tests
+
 import io
 import subprocess
 import sys
@@ -29,6 +29,7 @@ def _find_and_replace(text: str, finds_and_replaces: list[tuple[str, str]]) -> s
     return text
 
 
+# TODO(aliberts): Remove usage of subprocess calls and patch code with fixtures
 def _run_script(path):
     subprocess.run([sys.executable, path], check=True)
 
@@ -111,7 +112,8 @@ def test_examples_basic2_basic3_advanced1():
                 '# pretrained_policy_path = Path("outputs/train/example_pusht_diffusion")',
                 'pretrained_policy_path = Path("outputs/train/example_pusht_diffusion")',
             ),
-            ('split=f"train[{first_val_frame_index}:]"', 'split="train[30:]"'),
+            ("train_episodes = episodes[:num_train_episodes]", "train_episodes = [0]"),
+            ("val_episodes = episodes[num_train_episodes:]", "val_episodes = [1]"),
             ("num_workers=4", "num_workers=0"),
             ('device = torch.device("cuda")', 'device = torch.device("cpu")'),
             ("batch_size=64", "batch_size=1"),
