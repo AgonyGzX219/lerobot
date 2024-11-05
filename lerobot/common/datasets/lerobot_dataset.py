@@ -27,7 +27,7 @@ import PIL.Image
 import torch
 import torch.utils
 from datasets import load_dataset
-from huggingface_hub import snapshot_download, upload_folder
+from huggingface_hub import create_repo, snapshot_download, upload_folder
 
 from lerobot.common.datasets.compute_stats import aggregate_stats, compute_stats
 from lerobot.common.datasets.image_writer import AsyncImageWriter, write_image
@@ -266,6 +266,8 @@ class LeRobotDatasetMetadata:
         obj.repo_id = repo_id
         obj.root = root if root is not None else LEROBOT_HOME / repo_id
 
+        obj.root.mkdir(parents=True, exist_ok=False)
+
         if robot is not None:
             features = get_features_from_robot(robot, use_videos)
             robot_type = robot.robot_type
@@ -410,11 +412,9 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.video_backend = video_backend if video_backend is not None else "pyav"
         self.delta_indices = None
         self.local_files_only = local_files_only
-        self.consolidated = True
 
         # Unused attributes
         self.image_writer = None
-        self.episode_buffer = {}
 
         self.root.mkdir(exist_ok=True, parents=True)
 
@@ -437,7 +437,13 @@ class LeRobotDataset(torch.utils.data.Dataset):
             check_delta_timestamps(self.delta_timestamps, self.fps, self.tolerance_s)
             self.delta_indices = get_delta_indices(self.delta_timestamps, self.fps)
 
-    def push_to_hub(self, push_videos: bool = True) -> None:
+        # Available stats implies all videos have been encoded and dataset is iterable
+        self.consolidated = self.meta.stats is not None
+
+        # Create an empty buffer to extend the dataset if required
+        self.episode_buffer = self._create_episode_buffer()
+
+    def push_to_hub(self, push_videos: bool = True, private: bool = False) -> None:
         if not self.consolidated:
             raise RuntimeError(
                 "You are trying to upload to the hub a LeRobotDataset that has not been consolidated yet."
@@ -446,6 +452,13 @@ class LeRobotDataset(torch.utils.data.Dataset):
         ignore_patterns = ["images/"]
         if not push_videos:
             ignore_patterns.append("videos/")
+
+        create_repo(
+            repo_id=self.repo_id,
+            private=private,
+            repo_type="dataset",
+            exist_ok=True,
+        )
 
         upload_folder(
             repo_id=self.repo_id,
@@ -746,7 +759,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         # Reset the buffer
         self.episode_buffer = self._create_episode_buffer()
 
-    def start_image_writer(self, num_processes: int = 0, num_threads: int = 1) -> None:
+    def start_image_writer(self, num_processes: int = 0, num_threads: int = 4) -> None:
         if isinstance(self.image_writer, AsyncImageWriter):
             logging.warning(
                 "You are starting a new AsyncImageWriter that is replacing an already exising one in the dataset."
@@ -837,7 +850,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         use_videos: bool = True,
         tolerance_s: float = 1e-4,
         image_writer_processes: int = 0,
-        image_writer_threads: int = 0,
+        image_writer_threads: int = 4,
         video_backend: str | None = None,
     ) -> "LeRobotDataset":
         """Create a LeRobot Dataset from scratch in order to record data."""
@@ -857,8 +870,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         obj.tolerance_s = tolerance_s
         obj.image_writer = None
 
-        if image_writer_processes or image_writer_threads:
-            obj.start_image_writer(image_writer_processes, image_writer_threads)
+        obj.start_image_writer(image_writer_processes, image_writer_threads)
 
         # TODO(aliberts, rcadene, alexander-soare): Merge this with OnlineBuffer/DataBuffer
         obj.episode_buffer = obj._create_episode_buffer()
